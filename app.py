@@ -8,8 +8,12 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
 @app.route('/')
-def home():
-    return "Flask app is running on Koyeb!"
+def landing_page():
+    return render_template('index.html')
+
+@app.route('/upload')
+def upload_page():
+    return render_template('upload_form.html')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

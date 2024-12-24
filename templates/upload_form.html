@@ -51,45 +51,59 @@
 
     <script>
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+    e.preventDefault();
 
-            const title = document.getElementById('title').value;
-            const fileInput = document.getElementById('file');
-            const file = fileInput.files[0];
+    const title = document.getElementById('title').value;
+    const fileInput = document.getElementById('file');
+    const file = fileInput.files[0];
 
-            if (!file) {
-                alert('Please select a file to upload.');
-                return;
+    if (!file) {
+        alert('Please select a file to upload.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('file', file);
+
+    const progressBar = document.getElementById('progress-bar');
+    const statusText = document.getElementById('upload-status');
+
+    statusText.innerText = `Uploading "${title}"...`;
+    progressBar.style.width = '0%';
+
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload', true);
+
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                progressBar.style.width = `${percentComplete}%`;
+                statusText.innerText = `Uploading "${title}"... ${percentComplete}%`;
             }
+        };
 
-            const formData = new FormData();
-            formData.append('title', title);
-            formData.append('file', file);
-
-            const progressBar = document.getElementById('progress-bar');
-            const statusText = document.getElementById('upload-status');
-
-            statusText.innerText = `Uploading "${title}"...`;
-            progressBar.style.width = '0%';
-
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    progressBar.style.width = '100%';
-                    statusText.innerText = `Upload Done! Title: "${result.title}"`;
-                } else {
-                    progressBar.style.width = '0%';
-                    statusText.innerText = 'Upload failed. Please try again.';
-                }
-            } catch (error) {
-                console.error('Error uploading file:', error);
-                statusText.innerText = 'An error occurred during upload.';
+        xhr.onload = () => {
+            if (xhr.status === 200) {
+                const result = JSON.parse(xhr.responseText);
+                progressBar.style.width = '100%';
+                statusText.innerText = `Upload Done! Title: "${result.title}"`;
+            } else {
+                progressBar.style.width = '0%';
+                statusText.innerText = 'Upload failed. Please try again.';
             }
+        };
+
+        xhr.onerror = () => {
+            statusText.innerText = 'An error occurred during upload.';
+        };
+
+        xhr.send(formData);
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        statusText.innerText = 'An error occurred during upload.';
+    }
         });
     </script>
 </body>

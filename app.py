@@ -1,20 +1,40 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, send_from_directory
+from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from models import db, Upload, Admin
+from drive_uploader import upload_to_drive
 import os
-import logging
-from drive_uploader import upload_to_drive  # Ensure this function is implemented correctly
+from datetime import datetime
+from dotenv import load_dotenv
 
-# Initialize Flask app
+# Load environment variables
+load_dotenv()
+
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///uploads.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'uploads')
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s - %(levelname)s - %(message)s')
+# Ensure upload folder exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# Allowed file extensions
-ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.ppt'}
+# Initialize extensions
+db.init_app(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'admin_login'
+
+ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.ppt', '.pptx'}
 
 def allowed_file(filename):
-    _, file_extension = os.path.splitext(filename)
-    return file_extension.lower() in ALLOWED_EXTENSIONS
+    return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
+
+@login_manager.user_loader
+def load_user(user_id):
+    return Admin.query.get(int(user_id))
 
 @app.route('/')
 def home():
@@ -24,42 +44,116 @@ def home():
 def upload():
     if request.method == 'GET':
         return render_template('upload_form.html')
-    elif request.method == 'POST':
-        # Validate file and title
+
+    if request.method == 'POST':
         if 'file' not in request.files or 'title' not in request.form:
             return jsonify({'error': 'Invalid request'}), 400
-        
+
         file = request.files['file']
         title = request.form['title']
-        
-        if file and allowed_file(file.filename):
-            # Preserve file extension
-            _, file_extension = os.path.splitext(file.filename)
-            updated_filename = f"{title}{file_extension}"
 
-            # Save the file temporarily
-            temp_path = os.path.join('uploads', updated_filename)
-            os.makedirs('uploads', exist_ok=True)
-            try:
-                file.save(temp_path)
-                logging.info(f"File saved temporarily: {temp_path}")
-                
-                # Upload to Google Drive
-                drive_file_id = upload_to_drive(temp_path, updated_filename, updated_filename)
-                
-                # Clean up temporary file
-                os.remove(temp_path)
-                logging.info(f"Temporary file removed: {temp_path}")
+        if not file or not file.filename:
+            return jsonify({'error': 'No file selected'}), 400
 
-                if drive_file_id:
-                    return jsonify({'message': 'Upload successful', 'title': updated_filename, 'drive_file_id': drive_file_id})
-                else:
-                    return jsonify({'error': 'Failed to upload to Google Drive'}), 500
-            except Exception as e:
-                logging.error(f"Error during file processing: {e}")
-                return jsonify({'error': 'An error occurred during upload'}), 500
-        else:
+        if not allowed_file(file.filename):
             return jsonify({'error': 'File type not allowed'}), 400
 
+        try:
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+
+            # Upload to Google Drive
+            drive_file_id = upload_to_drive(file_path, title, filename)
+
+            if drive_file_id:
+                # Save to database
+                upload = Upload(
+                    title=title,
+                    drive_file_id=drive_file_id,
+                    original_filename=filename,
+                    file_size=os.path.getsize(file_path),
+                    mime_type=file.content_type
+                )
+                db.session.add(upload)
+                db.session.commit()
+
+                # Clean up local file
+                os.remove(file_path)
+
+                return jsonify({
+                    'message': 'Upload successful',
+                    'title': title,
+                    'drive_file_id': drive_file_id
+                })
+            else:
+                return jsonify({'error': 'Failed to upload to Google Drive'}), 500
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if current_user.is_authenticated:
+        return redirect(url_for('admin_dashboard'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        admin = Admin.query.filter_by(username=username).first()
+        if admin and check_password_hash(admin.password, password):
+            login_user(admin)
+            flash('Logged in successfully.', 'success')
+            return redirect(url_for('admin_dashboard'))
+
+        flash('Invalid username or password.', 'error')
+    return render_template('admin_login.html')
+
+@app.route('/admin/logout')
+@login_required
+def admin_logout():
+    logout_user()
+    flash('Logged out successfully.', 'success')
+    return redirect(url_for('admin_login'))
+
+@app.route('/admin/dashboard')
+@login_required
+def admin_dashboard():
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    uploads = Upload.query.order_by(Upload.upload_date.desc()).paginate(page=page, per_page=per_page)
+    return render_template('admin_dashboard.html', uploads=uploads)
+
+@app.route('/admin/update_prints/<int:upload_id>', methods=['POST'])
+@login_required
+def update_prints(upload_id):
+    upload = Upload.query.get_or_404(upload_id)
+    prints = request.form.get('prints', type=int)
+
+    if prints is not None and prints >= 0:
+        upload.prints_required = prints
+        upload.status = 'processing' if prints > 0 else 'pending'
+        db.session.commit()
+        flash('Print count updated successfully.', 'success')
+    else:
+        flash('Invalid print count.', 'error')
+
+    return redirect(url_for('admin_dashboard'))
+
+def create_admin_user():
+    with app.app_context():
+        admin = Admin.query.filter_by(username=os.getenv('ADMIN_USERNAME')).first()
+        if not admin:
+            admin = Admin(
+                username=os.getenv('ADMIN_USERNAME'),
+                password=generate_password_hash(os.getenv('ADMIN_PASSWORD'))
+            )
+            db.session.add(admin)
+            db.session.commit()
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    with app.app_context():
+        db.create_all()
+        create_admin_user()
+    app.run(debug=True)

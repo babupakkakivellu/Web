@@ -3,107 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Upload</title>
+    <title>Upload File</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
         body {
-            background-color: #f8f9fa;
-            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 50px 0;
         }
-        .container {
-            max-width: 600px;
-            margin-top: 50px;
-            background: #ffffff;
-            padding: 20px 30px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-        }
-        #progress-bar {
-            width: 0;
-            height: 20px;
-            background-color: #007bff;
-            border-radius: 5px;
-            transition: width 0.4s ease;
+        .upload-card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">Upload a File</h1>
-        <form id="uploadForm">
-            <div class="mb-3">
-                <label for="title" class="form-label">Title</label>
-                <input type="text" class="form-control" id="title" name="title" placeholder="Enter file title" required>
-            </div>
-            <div class="mb-3">
-                <label for="file" class="form-label">Choose a File</label>
-                <input type="file" class="form-control" id="file" name="file" accept=".pdf,.docx,.ppt,.pptx" required>
-            </div>
-            <button type="submit" class="btn btn-primary w-100">Upload File</button>
-        </form>
-        <div class="mt-4">
-            <p id="upload-status" class="text-center"></p>
-            <div id="progress-container" class="progress mt-2" style="height: 20px;">
-                <div id="progress-bar"></div>
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="upload-card p-4">
+                    <div class="text-end mb-3">
+                        <a href="{{ url_for('home') }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-home me-2"></i>Home
+                        </a>
+                    </div>
+
+                    <h2 class="text-center mb-4">Upload Your File</h2>
+
+                    <form id="uploadForm" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Document Title</label>
+                            <input type="text" class="form-control" id="title" name="title" required>
+                            <div class="invalid-feedback">
+                                Please provide a title for the document.
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="file" class="form-label">Choose File</label>
+                            <input type="file" class="form-control" id="file" name="file" 
+                                   accept=".pdf,.docx,.ppt,.pptx" required>
+                            <div class="invalid-feedback">
+                                Please select a file to upload.
+                            </div>
+                            <div class="form-text">
+                                Allowed file types: PDF, DOCX, PPT, PPTX
+                            </div>
+                        </div>
+
+                        <div class="progress mb-3" style="height: 25px; display: none;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%">0%</div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-upload me-2"></i>Upload File
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="uploadStatus" class="alert mt-3" style="display: none;"></div>
+                </div>
             </div>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+            e.preventDefault();
 
-    const title = document.getElementById('title').value;
-    const fileInput = document.getElementById('file');
-    const file = fileInput.files[0];
-
-    if (!file) {
-        alert('Please select a file to upload.');
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('title', title);
-    formData.append('file', file);
-
-    const progressBar = document.getElementById('progress-bar');
-    const statusText = document.getElementById('upload-status');
-
-    statusText.innerText = `Uploading "${title}"...`;
-    progressBar.style.width = '0%';
-
-    try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/upload', true);
-
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percentComplete = Math.round((event.loaded / event.total) * 100);
-                progressBar.style.width = `${percentComplete}%`;
-                statusText.innerText = `Uploading "${title}"... ${percentComplete}%`;
+            const form = e.target;
+            if (!form.checkValidity()) {
+                e.stopPropagation();
+                form.classList.add('was-validated');
+                return;
             }
-        };
 
-        xhr.onload = () => {
-            if (xhr.status === 200) {
-                const result = JSON.parse(xhr.responseText);
-                progressBar.style.width = '100%';
-                statusText.innerText = `Upload Done! Title: "${result.title}"`;
-            } else {
-                progressBar.style.width = '0%';
-                statusText.innerText = 'Upload failed. Please try again.';
+            const formData = new FormData(form);
+            const progressBar = document.querySelector('.progress-bar');
+            const progressContainer = document.querySelector('.progress');
+            const statusDiv = document.getElementById('uploadStatus');
+
+            progressContainer.style.display = 'block';
+            statusDiv.style.display = 'none';
+
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload', true);
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        progressBar.textContent = percentComplete + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        statusDiv.className = 'alert alert-success';
+                        statusDiv.textContent = 'File uploaded successfully!';
+                        form.reset();
+                        form.classList.remove('was-validated');
+                    } else {
+                        const response = JSON.parse(xhr.responseText);
+                        statusDiv.className = 'alert alert-danger';
+                        statusDiv.textContent = response.error || 'Upload failed. Please try again.';
+                    }
+                    statusDiv.style.display = 'block';
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                        progressBar.style.width = '0%';
+                    }, 1000);
+                };
+
+                xhr.onerror = function() {
+                    statusDiv.className = 'alert alert-danger';
+                    statusDiv.textContent = 'Upload failed. Please try again.';
+                    statusDiv.style.display = 'block';
+                    progressContainer.style.display = 'none';
+                };
+
+                xhr.send(formData);
+            } catch (error) {
+                statusDiv.className = 'alert alert-danger';
+                statusDiv.textContent = 'An error occurred. Please try again.';
+                statusDiv.style.display = 'block';
+                progressContainer.style.display = 'none';
             }
-        };
-
-        xhr.onerror = () => {
-            statusText.innerText = 'An error occurred during upload.';
-        };
-
-        xhr.send(formData);
-    } catch (error) {
-        console.error('Error uploading file:', error);
-        statusText.innerText = 'An error occurred during upload.';
-    }
         });
     </script>
 </body>

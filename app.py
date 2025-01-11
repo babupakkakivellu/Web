@@ -40,6 +40,18 @@ def load_user(user_id):
 def home():
     return render_template('index.html')
 
+@app.route('/admin/mark-completed/<int:upload_id>', methods=['POST'])
+@login_required
+def mark_completed(upload_id):
+    try:
+        upload = Upload.query.get_or_404(upload_id)
+        upload.status = 'completed'
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
     if request.method == 'GET':
